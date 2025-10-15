@@ -16,7 +16,7 @@ import {
   wrapDatabaseReader,
   wrapDatabaseWriter,
 } from "convex-helpers/server/rowLevelSecurity";
-import { ConvexError } from "convex/values";
+
 import z from "zod";
 
 export const triggers = new Triggers<DataModel>();
@@ -34,13 +34,20 @@ export const zq = zQueryBuilder(ConvexBase.query);
 export const zm = zMutationBuilder(ConvexBase.mutation);
 export const za = zActionBuilder(ConvexBase.action);
 
-export const protectedQueryWithRls = zCustomQueryBuilder(
+export const protectedQuery = zCustomQueryBuilder(
   ConvexBase.query,
   customCtx(async (ctx) => {
+    const user = await getUserOrThrow(ctx);
+    return {
+      user,
+    };
+  })
+);
+
+export const protectedQueryWithRls = zCustomQueryBuilder(
+  ConvexBase.query,
+  customCtx(async (ctx: ConvexBase.QueryCtx) => {
     const { rules, user } = await rlsRules(ctx);
-    if (!user) {
-      throw new ConvexError("Unauthorized");
-    }
     return {
       db: wrapDatabaseReader(ctx, ctx.db, rules),
       user,
@@ -50,11 +57,8 @@ export const protectedQueryWithRls = zCustomQueryBuilder(
 
 export const simpleProtectedQuery = zCustomQueryBuilder(
   ConvexBase.query,
-  customCtx(async (ctx) => {
+  customCtx(async (ctx: ConvexBase.QueryCtx) => {
     const user = await getUserOrThrow(ctx);
-    if (!user) {
-      throw new ConvexError("Unauthorized");
-    }
     return {
       user,
     };
@@ -63,12 +67,9 @@ export const simpleProtectedQuery = zCustomQueryBuilder(
 
 export const protectedMutationWithRlsAndTriggers = zCustomMutationBuilder(
   ConvexBase.mutation,
-  customCtx(async (ctx) => {
+  customCtx(async (ctx: ConvexBase.MutationCtx) => {
     const withTriggersCtx = triggers.wrapDB(ctx);
     const { rules, user } = await rlsRules(withTriggersCtx);
-    if (!user) {
-      throw new ConvexError("Unauthorized");
-    }
     return {
       db: wrapDatabaseWriter(withTriggersCtx, withTriggersCtx.db, rules),
       user,
@@ -78,11 +79,8 @@ export const protectedMutationWithRlsAndTriggers = zCustomMutationBuilder(
 
 export const simpleProtectedMutation = zCustomMutationBuilder(
   ConvexBase.mutation,
-  customCtx(async (ctx) => {
+  customCtx(async (ctx: ConvexBase.MutationCtx) => {
     const user = await getUserOrThrow(ctx);
-    if (!user) {
-      throw new ConvexError("Unauthorized");
-    }
     return { user };
   })
 );
@@ -96,83 +94,35 @@ type CustomCtx<T> = T extends (config: infer Config) => any
 
 export type ProtectedQueryWithRlsCtx = CustomCtx<typeof protectedQueryWithRls>;
 export type SimpleProtectedQueryCtx = CustomCtx<typeof simpleProtectedQuery>;
+export type ProtectedMutationWithRlsAndTriggersCtx = CustomCtx<
+  typeof protectedMutationWithRlsAndTriggers
+>;
 
-export const simpleCustomQueryTest = simpleProtectedQuery({
+export const simpleProtectedQueryTest = simpleProtectedQuery({
   args: {
     userId: zid("users"),
   },
-  // userId type is Id<"users">
   async handler(ctx, { userId }) {
-    // Returns any
-    const user = await ctx.db.get(userId);
+    const user = await getUserById(ctx, { userId });
     return user;
   },
 });
 
-export const customQueryTest = protectedQueryWithRls({
-  args: {
-    userId: zid("users"),
-  },
-  // userId type is Id<"users">
-  async handler(ctx, { userId }) {
-    // returns GenericDocument | null
-    const user = await ctx.db.get(userId);
-    return user;
-  },
-});
-
-export const zodvexQueryTest = zq({
-  args: {
-    userId: zid("users"),
-  },
-  // userId type is Id<"users">
-  async handler(ctx, { userId }) {
-    // returns any
-    const user = await ctx.db.get(userId);
-    return user;
-  },
-});
-
-export const simpleCustomMutationTest = simpleProtectedMutation({
-  args: {
-    userId: zid("users"),
-  },
-  // userId type is Id<"users">
-  async handler(ctx, { userId }) {
-    // Returns any
-    const user = await ctx.db.get(userId);
-    return user;
-  },
-});
-
-export const customMutationTest = protectedMutationWithRlsAndTriggers({
-  args: {
-    userId: zid("users"),
-  },
-  // userId type is Id<"users">
-  async handler(ctx, { userId }) {
-    // returns GenericDocument | null
-    const user = await ctx.db.get(userId);
-    return user;
-  },
-});
-
-export const zodvexMutationTest = zm({
-  args: {
-    userId: zid("users"),
-  },
-  // userId type is Id<"users">
-  async handler(ctx, { userId }) {
-    // returns any
-    const user = await ctx.db.get(userId);
-    return user;
-  },
-});
+export const protectedMutationWithRlsAndTriggersTest =
+  protectedMutationWithRlsAndTriggers({
+    args: {
+      userId: zid("users"),
+    },
+    async handler(ctx, { userId }) {
+      const user = await getUserById(ctx, { userId });
+      return user;
+    },
+  });
 
 const userIdSchema = zid("users");
 
-export async function test(
-  ctx: ProtectedQueryWithRlsCtx,
+export async function getUserById(
+  ctx: ProtectedMutationWithRlsAndTriggersCtx | SimpleProtectedQueryCtx,
   { userId }: { userId: z.infer<typeof userIdSchema> }
 ) {
   const user = await ctx.db.get(userId);

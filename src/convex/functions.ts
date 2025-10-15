@@ -17,6 +17,7 @@ import {
   wrapDatabaseWriter,
 } from "convex-helpers/server/rowLevelSecurity";
 import { ConvexError } from "convex/values";
+import z from "zod";
 
 export const triggers = new Triggers<DataModel>();
 
@@ -167,3 +168,13 @@ export const zodvexMutationTest = zm({
     return user;
   },
 });
+
+const userIdSchema = zid("users");
+
+export async function test(
+  ctx: ProtectedQueryWithRlsCtx,
+  { userId }: { userId: z.infer<typeof userIdSchema> }
+) {
+  const user = await ctx.db.get(userId);
+  return user;
+}
